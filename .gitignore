@@ -7,3 +7,12 @@ config_multi_env.ini
 
 # Other files to ignore
 prompt.md
+
+# Dynamically generated output files (e.g., from database connections)
+# These patterns ignore files like '172_16_171_55_tenant_1011157_interactive.html'
+# or '172_16_171_55_tenant_1011157_interactive.xlsx' etc.
+*_interactive.html
+*_interactive.xlsx
+*_interactive.csv
+
+*/index.html
