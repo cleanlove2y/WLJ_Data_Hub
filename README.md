@@ -65,7 +65,7 @@ graph TD
 ```ini
 [database]
 type = sqlserver
-host = 172.16.171.87
+host = localhost
 port = 1433
 database = my_database
 user = username
@@ -97,7 +97,7 @@ python generate_data_dictionary.py --config config_pgsql.ini
 ```ini
 [database]
 type = sqlserver
-host = 172.16.171.87
+host = localhost
 port = 1433
 database = my_sqlserver_db
 user = sqlserver_user
@@ -144,7 +144,7 @@ default = sqlserver
 
 [database:sqlserver]
 type = sqlserver
-host = 172.16.171.87
+host = localhost
 port = 1433
 database = my_sqlserver_db
 user = sqlserver_user
