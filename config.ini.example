@@ -1,0 +1,17 @@
+; 这是一个配置文件示例，请将其重命名为 config.ini 并填写您的数据库连接信息
+
+[database]
+type = mysql  
+; 可选值: mysql, postgresql, sqlserver, oracle
+host = localhost
+port = 3306   
+; MySQL 默认 3306, PostgreSQL 默认 5432, SQL Server 默认 1433, Oracle 默认 1521
+database = your_database_name
+user = your_username
+password = your_password
+
+[output]
+format = markdown 
+; 可选值: markdown, excel, csv
+filename = data_dictionary 
+; 输出文件名 (不包含扩展名)

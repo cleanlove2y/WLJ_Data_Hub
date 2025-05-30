@@ -1,0 +1,9 @@
+# Python virtual environment
+venv/
+
+# Configuration files
+config.ini
+config_multi_env.ini
+
+# Other files to ignore
+prompt

@@ -1,0 +1,7 @@
+SQLAlchemy
+pandas
+openpyxl # For Excel output
+PyMySQL # Example for MySQL
+psycopg2-binary # Example for PostgreSQL
+configparser
+pyodbc

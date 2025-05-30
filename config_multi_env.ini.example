@@ -1,0 +1,42 @@
+[environment]
+; 默认环境
+default = prod
+
+[database:sqlserver-test]
+type = sqlserver
+host = localhost
+port = 1433
+database = your_database_name
+user = your_username
+password = your_password
+driver = SQL Server
+
+[database:sqlserver-prod]
+type = sqlserver
+host = localhost
+port = 1433
+database = your_database_name
+user = your_username
+password = your_password
+driver = SQL Server
+
+[database:postgresql-test]
+type = postgresql
+host = localhost
+port = 5432
+database = your_database_name
+user = your_username
+password = your_password
+
+
+[database:postgresql-prod]
+type = postgresql
+host = localhost
+port = 5432
+database = your_database_name
+user = your_username
+password = your_password
+
+[output]
+format = interactive-html
+filename = 
