@@ -20,4 +20,4 @@ prompt.md
 
 .codeiumignore
 incremental_tables.txt
-__pycache__/*
+__pycache__/
