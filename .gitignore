@@ -14,5 +14,10 @@ prompt.md
 *_interactive.html
 *_interactive.xlsx
 *_interactive.csv
+*_interactive/*
 
 */index.html
+
+.codeiumignore
+incremental_tables.txt
+__pycache__/*

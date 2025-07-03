@@ -1,0 +1,13 @@
+# 增量更新表列表
+# 格式：每行一个表名，# 开头为注释
+# 
+# 使用说明：
+# 1. 在此文件中添加需要更新的表名，每行一个
+# 2. 运行: python generate_data_dictionary.py --incremental
+# 3. 脚本将只查询这些表，大幅减少数据库压力
+# 4. 生成的文档会与现有文档合并（仅支持interactive-html格式）
+#
+# 示例：
+# user_info
+# order_detail
+# product_catalog

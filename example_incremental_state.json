@@ -1,0 +1,25 @@
+{
+  "last_sync": "2024-01-16T14:20:00",
+  "database": {
+    "name": "my_database",
+    "host": "localhost",
+    "port": "3306",
+    "user": "db_user"
+  },
+  "tables_count": 150,
+  "tables": [
+    "user_info",
+    "user_profile",
+    "user_settings",
+    "order_detail",
+    "order_payment",
+    "product_catalog",
+    "product_inventory",
+    "product_category"
+  ],
+  "updated_tables": [
+    "user_info",
+    "order_detail",
+    "product_catalog"
+  ]
+}

@@ -255,7 +255,59 @@ def get_sqlserver_columns(engine, table_name):
         print(f"Error getting columns for table {table_name} from SQL Server: {e}")
         return []
 
-def extract_schema_info(db_config, engine, include_tables=None, exclude_tables=None):
+def filter_tables_by_search(table_names, schema_info, search_keyword=None, search_mode='all'):
+    """
+    根据搜索关键词和搜索模式过滤表
+    
+    Args:
+        table_names: 表名列表
+        schema_info: 已提取的表结构信息（用于搜索字段和注释）
+        search_keyword: 搜索关键词
+        search_mode: 搜索模式 ('all', 'table_name', 'column_name', 'comment', 'table_comment', 'column_comment')
+    
+    Returns:
+        过滤后的表名列表
+    """
+    if not search_keyword:
+        return table_names
+    
+    search_keyword = search_keyword.lower()
+    filtered_tables = []
+    
+    for table_name in table_names:
+        table_info = schema_info.get(table_name, {})
+        should_include = False
+        
+        if search_mode in ['all', 'table_name']:
+            # 搜索表名
+            if search_keyword in table_name.lower():
+                should_include = True
+        
+        if search_mode in ['all', 'comment', 'table_comment']:
+            # 搜索表注释
+            table_comment = table_info.get('comment', '').lower()
+            if search_keyword in table_comment:
+                should_include = True
+        
+        if search_mode in ['all', 'column_name', 'comment', 'column_comment']:
+            # 搜索字段名和字段注释
+            for col in table_info.get('columns', []):
+                if search_mode in ['all', 'column_name']:
+                    if search_keyword in col.get('name', '').lower():
+                        should_include = True
+                        break
+                
+                if search_mode in ['all', 'comment', 'column_comment']:
+                    if search_keyword in col.get('comment', '').lower():
+                        should_include = True
+                        break
+        
+        if should_include:
+            filtered_tables.append(table_name)
+    
+    return filtered_tables
+
+def extract_schema_info(db_config, engine, include_tables=None, exclude_tables=None, search_keyword=None, search_mode='all'):
     """Extracts schema information including table and column comments."""
     inspector = inspect(engine)
     db_type = db_config['type'].lower()
@@ -272,7 +324,9 @@ def extract_schema_info(db_config, engine, include_tables=None, exclude_tables=N
         table_names = [t for t in table_names if t in include_tables]
     if exclude_tables:
         table_names = [t for t in table_names if t not in exclude_tables]
-        
+    
+    # 首先提取所有表的基本信息（用于搜索）
+    print("正在提取表结构信息用于搜索...")
     for table_name in table_names:
         table_info = {
             'columns': [],
@@ -315,6 +369,20 @@ def extract_schema_info(db_config, engine, include_tables=None, exclude_tables=N
                 'comment': column_comments.get(col['name'], '')
             })
         schema_info[table_name] = table_info
+    
+    # 应用搜索过滤
+    if search_keyword:
+        print(f"正在应用搜索过滤: 关键词='{search_keyword}', 模式='{search_mode}'")
+        original_count = len(table_names)
+        table_names = filter_tables_by_search(table_names, schema_info, search_keyword, search_mode)
+        filtered_count = len(table_names)
+        print(f"搜索结果: 从 {original_count} 个表中筛选出 {filtered_count} 个匹配的表")
+        
+        # 只保留匹配的表的信息
+        filtered_schema_info = {}
+        for table_name in table_names:
+            filtered_schema_info[table_name] = schema_info[table_name]
+        schema_info = filtered_schema_info
     return schema_info
 
 def generate_markdown(schema_info, db_name):
@@ -442,9 +510,11 @@ def generate_interactive_html(schema_info, db_name, filename):
                 .navbar h1 {{ margin: 0; font-size: 1.5rem; color: white; }}
                 
                 /* 搜索栏样式 */
-                .search-container {{ display: flex; gap: 10px; align-items: center; }}
+                .search-container {{ display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }}
                 #searchInput {{ padding: 8px 15px; border: none; border-radius: 4px; width: 300px; font-size: 16px; }}
+                #searchMode {{ padding: 8px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; background-color: white; }}
                 #tableCount {{ margin-left: 15px; font-size: 0.9rem; }}
+                .search-help {{ font-size: 0.8rem; color: #ccc; margin-left: 10px; }}
                 
                 /* 主内容区域样式 */
                 .main-content {{ display: flex; margin-top: 20px; }}
@@ -475,7 +545,10 @@ def generate_interactive_html(schema_info, db_name, filename):
                     .main-content {{ flex-direction: column; }}
                     .table-list {{ width: 100%; height: auto; max-height: 300px; padding-right: 0; margin-bottom: 20px; }}
                     .table-details {{ padding-left: 0; border-left: none; }}
-                    #searchInput {{ width: 200px; }}
+                    .search-container {{ flex-direction: column; align-items: stretch; gap: 5px; }}
+                    #searchInput {{ width: 100%; }}
+                    #searchMode {{ width: 100%; }}
+                    .search-help {{ margin-left: 0; text-align: center; }}
                 }}
                 
                 /* 加载中样式 */
@@ -496,8 +569,17 @@ def generate_interactive_html(schema_info, db_name, filename):
                 <div class="navbar-content">
                     <h1>数据字典 - {db_name}</h1>
                     <div class="search-container">
-                        <input type="text" id="searchInput" placeholder="搜索表名或字段名..." />
+                        <input type="text" id="searchInput" placeholder="输入搜索关键词..." />
+                        <select id="searchMode">
+                            <option value="all">所有内容</option>
+                            <option value="table_name">仅表名</option>
+                            <option value="column_name">仅字段名</option>
+                            <option value="comment">所有注释</option>
+                            <option value="table_comment">仅表注释</option>
+                            <option value="column_comment">仅字段注释</option>
+                        </select>
                         <span id="tableCount">共 {len(schema_info)} 个表</span>
+                        <span class="search-help">选择搜索范围以精确筛选</span>
                     </div>
                 </div>
             </div>
@@ -561,9 +643,11 @@ def generate_interactive_html(schema_info, db_name, filename):
             
             // DOM 元素
             const searchInput = document.getElementById('searchInput');
+            const searchMode = document.getElementById('searchMode');
             const tableList = document.getElementById('tableList');
             const tableDetails = document.getElementById('tableDetails');
             const backToTop = document.getElementById('backToTop');
+            const tableCount = document.getElementById('tableCount');
             
             // 当前选中的表
             let currentTable = null;
@@ -650,10 +734,11 @@ def generate_interactive_html(schema_info, db_name, filename):
             }
             
             // 搜索功能
-            function searchTables(query) {
+            function searchTables(query, mode = 'all') {
                 if (!query) {
                     // 如果搜索框为空，显示所有表
                     initializeTableList();
+                    tableCount.textContent = `共 ${Object.keys(schemaData).length} 个表`;
                     if (currentTable) {
                         showTableDetails(currentTable);
                     } else {
@@ -662,34 +747,49 @@ def generate_interactive_html(schema_info, db_name, filename):
                     return;
                 }
                 
-                // 搜索表名
                 const tableNames = Object.keys(schemaData);
                 const matchedTables = [];
-                const matchedColumns = {};
+                const queryLower = query.toLowerCase();
                 
-                // 搜索表名和列名
+                // 根据搜索模式进行搜索
                 tableNames.forEach(tableName => {
-                    // 检查表名是否匹配
-                    const tableNameMatch = tableName.toLowerCase().includes(query.toLowerCase());
-                    if (tableNameMatch) {
-                        matchedTables.push(tableName);
+                    const tableData = schemaData[tableName];
+                    let shouldInclude = false;
+                    
+                    // 搜索表名
+                    if (mode === 'all' || mode === 'table_name') {
+                        if (tableName.toLowerCase().includes(queryLower)) {
+                            shouldInclude = true;
+                        }
                     }
                     
-                    // 检查列名是否匹配
-                    const columns = schemaData[tableName].columns;
-                    for (const col of columns) {
-                        if (col.name.toLowerCase().includes(query.toLowerCase()) || 
-                            (col.comment && col.comment.toLowerCase().includes(query.toLowerCase()))) {
-                            if (!matchedColumns[tableName]) {
-                                matchedColumns[tableName] = [];
+                    // 搜索表注释
+                    if ((mode === 'all' || mode === 'comment' || mode === 'table_comment') && !shouldInclude) {
+                        if (tableData.comment && tableData.comment.toLowerCase().includes(queryLower)) {
+                            shouldInclude = true;
+                        }
+                    }
+                    
+                    // 搜索字段名和字段注释
+                    if ((mode === 'all' || mode === 'column_name' || mode === 'comment' || mode === 'column_comment') && !shouldInclude) {
+                        for (const col of tableData.columns) {
+                            // 搜索字段名
+                            if ((mode === 'all' || mode === 'column_name') && col.name.toLowerCase().includes(queryLower)) {
+                                shouldInclude = true;
+                                break;
                             }
-                            matchedColumns[tableName].push(col.name);
                             
-                            // 如果表还没有因为表名匹配而添加，则添加它
-                            if (!matchedTables.includes(tableName)) {
-                                matchedTables.push(tableName);
+                            // 搜索字段注释
+                            if ((mode === 'all' || mode === 'comment' || mode === 'column_comment') && 
+                                col.comment && col.comment.toLowerCase().includes(queryLower)) {
+                                shouldInclude = true;
+                                break;
                             }
                         }
+                    }
+                    
+                    if (shouldInclude) {
+                        matchedTables.push(tableName);
                     }
                 });
                 
@@ -704,9 +804,13 @@ def generate_interactive_html(schema_info, db_name, filename):
                         tableList.appendChild(li);
                     });
                     
+                    // 更新表计数
+                    tableCount.textContent = `找到 ${matchedTables.length} 个匹配的表`;
+                    
                     // 自动显示第一个匹配的表
                     showTableDetails(matchedTables[0], query);
                 } else {
+                    tableCount.textContent = '没有找到匹配的表';
                     tableDetails.innerHTML = '<div class="no-results">没有找到匹配的表或字段</div>';
                 }
             }
@@ -727,7 +831,12 @@ def generate_interactive_html(schema_info, db_name, filename):
             
             // 搜索框输入事件
             searchInput.addEventListener('input', (e) => {
-                searchTables(e.target.value.trim());
+                searchTables(e.target.value.trim(), searchMode.value);
+            });
+            
+            // 搜索模式改变事件
+            searchMode.addEventListener('change', (e) => {
+                searchTables(searchInput.value.trim(), e.target.value);
             });
             
             // 初始化
@@ -947,6 +1056,326 @@ def generate_csv(schema_info, db_name, filename):
         print(f"Generated CSV file for table {table_name}: {csv_path}")
     print(f"Generated CSV files in directory: {output_dir}")
 
+def read_incremental_tables_file(file_path):
+    """读取增量表文件，返回表名列表"""
+    if not os.path.exists(file_path):
+        return []
+    
+    tables = []
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # 跳过空行和注释行
+                if line and not line.startswith('#'):
+                    tables.append(line)
+        return tables
+    except Exception as e:
+        print(f"Error reading incremental tables file {file_path}: {e}")
+        return []
+
+def show_incremental_file_content(file_path):
+    """显示增量表文件内容"""
+    if not os.path.exists(file_path):
+        print(f"增量表文件 '{file_path}' 不存在")
+        print("您可以创建此文件并添加需要更新的表名，每行一个表名")
+        print("\n示例内容:")
+        print("# 增量更新表列表")
+        print("# 格式：每行一个表名，# 开头为注释")
+        print("user_info")
+        print("order_detail")
+        return
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        print(f"增量表文件 '{file_path}' 内容:")
+        print("-" * 50)
+        if content.strip():
+            print(content)
+        else:
+            print("(文件为空)")
+        print("-" * 50)
+        
+        # 解析并显示有效的表名
+        tables = read_incremental_tables_file(file_path)
+        if tables:
+            print(f"\n有效的表名 ({len(tables)} 个):")
+            for i, table in enumerate(tables, 1):
+                print(f"  {i}. {table}")
+        else:
+            print("\n没有找到有效的表名")
+            
+    except Exception as e:
+        print(f"Error reading file {file_path}: {e}")
+
+def clear_incremental_file(file_path):
+    """清空增量表文件"""
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write("# 增量更新表列表\n")
+            f.write("# 格式：每行一个表名，# 开头为注释\n")
+            f.write("\n")
+        print(f"已清空增量表文件 '{file_path}'")
+    except Exception as e:
+        print(f"Error clearing file {file_path}: {e}")
+
+def get_incremental_tables(args):
+    """获取增量同步的表列表"""
+    if args.tables:
+        # 命令行指定的表优先
+        tables = [table.strip() for table in args.tables.split(',') if table.strip()]
+        print(f"使用命令行指定的表: {tables}")
+        return tables
+    else:
+        # 从文件读取
+        tables = read_incremental_tables_file(args.tables_file)
+        if tables:
+            print(f"从文件 '{args.tables_file}' 读取到 {len(tables)} 个表")
+            print(f"表列表: {tables}")
+        else:
+            print(f"增量表文件 '{args.tables_file}' 为空或不存在")
+            print("请在文件中添加需要更新的表名，或使用 --tables 参数直接指定")
+        return tables
+
+def save_incremental_state(state_file, schema_info, db_name, db_host, db_port, db_user, updated_tables_list=None):
+    """保存增量同步状态"""
+    import datetime
+    
+    # 如果未提供更新列表，则默认为所有表（用于兼容旧逻辑或全量同步场景）
+    if updated_tables_list is None:
+        updated_tables_list = list(schema_info.keys())
+
+    state = {
+        'last_sync': datetime.datetime.now().isoformat(),
+        'database': {
+            'name': db_name,
+            'host': db_host,
+            'port': db_port,
+            'user': db_user
+        },
+        'tables_count': len(schema_info),  # 文档中包含的总表数
+        'tables': list(schema_info.keys()), # 文档中包含的所有表的列表
+        'updated_tables': updated_tables_list  # 本次实际更新的表
+    }
+    
+    try:
+        with open(state_file, 'w', encoding='utf-8') as f:
+            import json
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        print(f"✓ 已保存增量同步状态到 '{state_file}'")
+        print(f"  数据库: {db_host}:{db_port}/{db_name}")
+        print(f"  更新表数: {len(updated_tables_list)}") # 修正日志输出，只显示本次更新的数量
+    except Exception as e:
+        print(f"Warning: Could not save incremental state: {e}")
+
+def load_incremental_state(state_file):
+    """加载增量同步状态"""
+    if not os.path.exists(state_file):
+        return None
+    
+    try:
+        with open(state_file, 'r', encoding='utf-8') as f:
+            import json
+            return json.load(f)
+    except Exception as e:
+        print(f"Warning: Could not load incremental state: {e}")
+        return None
+
+def show_incremental_status(config, output_filename_base):
+    """显示增量同步状态"""
+    # 状态文件现在保存在交互式HTML的输出目录中
+    state_file = os.path.join(f"{output_filename_base}_interactive", f"{output_filename_base}_incremental_state.json")
+    
+    print(f"增量同步状态检查:")
+    print(f"状态文件: {state_file}")
+    print("-" * 60)
+    
+    # 当前配置信息
+    db_name = config['database']['database']
+    db_host = config['database']['host']
+    db_port = config['database']['port']
+    db_user = config['database']['user']
+    
+    print(f"当前配置:")
+    print(f"  数据库: {db_host}:{db_port}/{db_name}")
+    print(f"  用户: {db_user}")
+    print()
+    
+    # 加载状态文件
+    state = load_incremental_state(state_file)
+    
+    if not state:
+        print("❌ 没有找到增量同步状态文件")
+        print("这可能是因为:")
+        print("1. 从未运行过增量同步")
+        print("2. 状态文件被删除")
+        print("3. 使用了不同的输出文件名")
+        return
+    
+    print(f"上次增量同步:")
+    print(f"  时间: {state.get('last_sync', 'Unknown')}")
+    
+    # 检查数据库信息匹配
+    state_db = state.get('database', {})
+    if isinstance(state_db, str):
+        # 兼容旧格式
+        state_db_name = state_db
+        state_db_host = "Unknown"
+        state_db_port = "Unknown"
+    else:
+        state_db_name = state_db.get('name', 'Unknown')
+        state_db_host = state_db.get('host', 'Unknown')
+        state_db_port = state_db.get('port', 'Unknown')
+    
+    print(f"  数据库: {state_db_host}:{state_db_port}/{state_db_name}")
+    print(f"  表总数: {state.get('tables_count', 0)}")
+    
+    updated_tables = state.get('updated_tables', state.get('tables', []))
+    print(f"  上次更新表数: {len(updated_tables)}")
+    
+    # 验证数据库匹配
+    db_match = (state_db_name == db_name and 
+                state_db_host == db_host and 
+                str(state_db_port) == str(db_port))
+    
+    if db_match:
+        print("✓ 数据库配置匹配")
+    else:
+        print("⚠️  数据库配置不匹配!")
+        print("   这可能导致增量同步到错误的文件")
+        print("   建议:")
+        print("   1. 检查配置文件是否正确")
+        print("   2. 确认要更新的数据库")
+        print("   3. 考虑使用不同的输出文件名")
+    
+    # 检查目标HTML文件
+    html_file = os.path.join(f"{output_filename}_interactive", "index.html")
+    print(f"\n目标HTML文件: {html_file}")
+    
+    if os.path.exists(html_file):
+        print("✓ 目标HTML文件存在")
+        
+        # 验证HTML文件数据库匹配
+        try:
+            with open(html_file, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+            
+            if validate_html_database_match(html_content, db_name):
+                print("✓ HTML文件数据库匹配")
+            else:
+                print("⚠️  HTML文件数据库不匹配")
+        except Exception as e:
+            print(f"❌ 无法验证HTML文件: {e}")
+    else:
+        print("❌ 目标HTML文件不存在")
+        print("   增量同步将创建新文件")
+    
+    print("\n" + "=" * 60)
+
+def merge_schema_info_incremental(existing_schema_file, new_schema_info, output_format, db_name, db_host):
+    """将新的表信息合并到现有的schema信息中"""
+    if not os.path.exists(existing_schema_file):
+        print("没有找到现有的数据字典文件，将创建新文件")
+        return new_schema_info
+    
+    if output_format == 'interactive-html':
+        # 对于交互式HTML，需要从现有文件中提取JSON数据
+        return merge_interactive_html_data(existing_schema_file, new_schema_info, db_name, db_host)
+    else:
+        # 对于其他格式，暂时返回新数据（后续可以扩展）
+        print(f"增量更新暂不支持 {output_format} 格式的合并，将覆盖现有文件")
+        return new_schema_info
+
+def validate_html_database_match(html_content, db_name):
+    """验证HTML文件是否属于指定的数据库"""
+    try:
+        # 查找HTML标题中的数据库名
+        title_pattern = f"<title>数据字典 - {db_name}</title>"
+        if title_pattern in html_content:
+            return True
+        
+        # 查找H1标签中的数据库名
+        h1_pattern = f"<h1>数据字典 - {db_name}</h1>"
+        if h1_pattern in html_content:
+            return True
+        
+        # 如果都没找到，可能是数据库名不匹配
+        return False
+        
+    except Exception as e:
+        print(f"Warning: Could not validate database match: {e}")
+        return True  # 验证失败时默认允许合并
+
+def merge_interactive_html_data(html_file, new_schema_info, db_name, db_host):
+    """从现有的交互式HTML文件中提取数据并合并新数据"""
+    try:
+        with open(html_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # 验证HTML文件是否属于当前数据库
+        if not validate_html_database_match(content, db_name):
+            print(f"警告: 现有HTML文件不属于当前数据库 '{db_name}'")
+            print("这可能是因为:")
+            print("1. 配置文件指向了不同的数据库")
+            print("2. 数据库名称发生了变化")
+            print("3. 使用了错误的配置文件")
+            
+            user_choice = input("是否继续合并? (y/N): ").strip().lower()
+            if user_choice not in ['y', 'yes']:
+                print("取消合并，将创建新的数据字典文件")
+                return new_schema_info
+        
+        # 查找JSON数据的开始和结束位置
+        start_marker = "const schemaData = "
+        end_marker = ";"
+        
+        start_pos = content.find(start_marker)
+        if start_pos == -1:
+            print("Warning: Could not find schema data in existing HTML file")
+            return new_schema_info
+        
+        start_pos += len(start_marker)
+        
+        # 从start_pos开始查找第一个分号，但要考虑JSON中可能包含分号
+        # 更安全的方法是查找 "; \n" 或类似的模式
+        temp_content = content[start_pos:]
+        brace_count = 0
+        end_pos = -1
+        
+        for i, char in enumerate(temp_content):
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    # 找到JSON结束位置
+                    end_pos = i + 1
+                    break
+        
+        if end_pos == -1:
+            print("Warning: Could not parse schema data from existing HTML file")
+            return new_schema_info
+        
+        json_str = temp_content[:end_pos]
+        
+        import json
+        existing_schema_info = json.loads(json_str)
+        
+        # 合并数据：新数据覆盖现有数据
+        merged_schema_info = existing_schema_info.copy()
+        merged_schema_info.update(new_schema_info)
+        
+        print(f"✓ 成功合并数据：现有 {len(existing_schema_info)} 个表，新增/更新 {len(new_schema_info)} 个表，合并后共 {len(merged_schema_info)} 个表")
+        
+        return merged_schema_info
+        
+    except Exception as e:
+        print(f"Warning: Could not merge with existing HTML file: {e}")
+        print("将创建新的数据字典文件")
+        return new_schema_info
+
 def test_db_connection(db_config):
     """Tests the database connection."""
     try:
@@ -970,10 +1399,50 @@ def main():
     parser.add_argument('--test-connection', action='store_true', help='Test database connection and exit.')
     parser.add_argument('--include-tables', type=str, help='Comma-separated list of tables to include. If not specified, all tables will be included.')
     parser.add_argument('--exclude-tables', type=str, help='Comma-separated list of tables to exclude.')
+    parser.add_argument('--search-keyword', type=str, help='Search keyword to filter tables and columns.')
+    parser.add_argument('--search-mode', type=str, default='all', 
+                       choices=['all', 'table_name', 'column_name', 'comment', 'table_comment', 'column_comment'],
+                       help='Search mode: all (default), table_name (only table names), column_name (only column names), comment (all comments), table_comment (only table comments), column_comment (only column comments).')
+    parser.add_argument('--incremental', action='store_true', help='Enable incremental sync mode.')
+    parser.add_argument('--tables-file', type=str, default='incremental_tables.txt', help='File containing list of tables to update in incremental mode (default: incremental_tables.txt).')
+    parser.add_argument('--tables', type=str, help='Comma-separated list of tables to update in incremental mode (overrides --tables-file).')
+    parser.add_argument('--show-incremental-file', action='store_true', help='Show the content of incremental tables file and exit.')
+    parser.add_argument('--clear-incremental-file', action='store_true', help='Clear the incremental tables file and exit.')
+    parser.add_argument('--show-incremental-status', action='store_true', help='Show the incremental sync status and exit.')
     parser.add_argument('--output-format', type=str, help='Override output format from config (markdown, excel, csv, html, interactive-html).')
     parser.add_argument('--output-file', type=str, help='Override output filename from config.')
     parser.add_argument('--max-tables-per-file', type=int, default=50, help='Maximum number of tables per file for Excel and HTML output.')
     args = parser.parse_args()
+    
+    # 处理增量同步相关的命令
+    if args.show_incremental_file:
+        show_incremental_file_content(args.tables_file)
+        return
+    
+    if args.clear_incremental_file:
+        clear_incremental_file(args.tables_file)
+        return
+    
+    if args.show_incremental_status:
+        # 需要先读取配置来获取数据库信息
+        try:
+            config = read_config(args.config, args.env)
+            
+            # 确定输出文件名
+            if args.output_file:
+                output_filename = args.output_file
+            else:
+                if 'filename' in config['output'] and config['output']['filename'].strip():
+                    output_filename = config['output']['filename']
+                else:
+                    host_clean = config['database']['host'].replace('.', '_')
+                    db_clean = config['database']['database'].replace('.', '_')
+                    output_filename = f"{host_clean}_{db_clean}"
+            
+            show_incremental_status(config, output_filename)
+        except Exception as e:
+            print(f"Error reading config: {e}")
+        return
     
     # 如果指定了列出环境选项，则列出可用环境并退出
     if args.list_env:
@@ -1036,13 +1505,42 @@ def main():
         # 处理表过滤参数
         include_tables = args.include_tables.split(',') if args.include_tables else None
         exclude_tables = args.exclude_tables.split(',') if args.exclude_tables else None
+        
+        # 处理增量同步
+        incremental_tables = None
+        if args.incremental:
+            incremental_tables = get_incremental_tables(args)
+            if not incremental_tables:
+                print("错误: 增量同步模式下没有指定要更新的表")
+                print(f"请在 '{args.tables_file}' 文件中添加表名，或使用 --tables 参数指定")
+                return
+            
+            # 在增量模式下，include_tables 应该是增量表列表
+            include_tables = incremental_tables
+            print(f"增量同步模式：将更新 {len(incremental_tables)} 个表")
 
         # 连接数据库并提取信息
         db_connection_string = get_db_connection_string(config['database'])
         engine = create_engine(db_connection_string)
 
         print(f"Connecting to database: {db_name} ({db_type})...")
-        schema_info = extract_schema_info(config['database'], engine, include_tables, exclude_tables)
+        
+        # 显示搜索信息
+        if args.search_keyword:
+            print(f"搜索关键词: '{args.search_keyword}'")
+            print(f"搜索模式: {args.search_mode}")
+            search_mode_descriptions = {
+                'all': '所有内容（表名、字段名、注释）',
+                'table_name': '仅表名',
+                'column_name': '仅字段名',
+                'comment': '所有注释（表注释和字段注释）',
+                'table_comment': '仅表注释',
+                'column_comment': '仅字段注释'
+            }
+            print(f"搜索范围: {search_mode_descriptions.get(args.search_mode, args.search_mode)}")
+        
+        schema_info = extract_schema_info(config['database'], engine, include_tables, exclude_tables, 
+                                        args.search_keyword, args.search_mode)
         print("Schema information extracted successfully.")
 
         # 计算表的数量和确认每个文件的最大表数
@@ -1051,6 +1549,22 @@ def main():
         # 计算表的数量
         table_count = len(schema_info)
         print(f"Found {table_count} tables in database {db_name}")
+        
+        # 处理增量合并
+        if args.incremental and output_format == 'interactive-html':
+            # 确定现有文件路径
+            existing_file_path = os.path.join(f"{output_filename}_interactive", "index.html")
+            
+            print(f"增量同步目标:")
+            print(f"  数据库: {db_host}:{config['database']['port']}/{db_name}")
+            print(f"  目标文件: {existing_file_path}")
+            
+            # 合并现有数据
+            schema_info = merge_schema_info_incremental(existing_file_path, schema_info, output_format, db_name, db_host)
+            
+            # 更新表计数
+            table_count = len(schema_info)
+            print(f"合并后共有 {table_count} 个表")
 
         # 生成数据字典
         if output_format == 'markdown':
@@ -1092,6 +1606,34 @@ def main():
             print("Supported formats: markdown, excel, html, interactive-html, csv")
             print("\n推荐使用 interactive-html 格式，它提供了搜索功能，方便查找表和字段。")
             print("例如: python generate_data_dictionary.py --output-format interactive-html")
+            
+        # 显示搜索功能使用提示
+        if args.search_keyword:
+            print(f"\n搜索功能使用提示:")
+            print(f"- 您可以使用 --search-keyword 参数来过滤表")
+            print(f"- 使用 --search-mode 参数来指定搜索范围:")
+            print(f"  * all: 搜索所有内容（默认）")
+            print(f"  * table_name: 仅搜索表名")
+            print(f"  * column_name: 仅搜索字段名")
+            print(f"  * comment: 搜索所有注释")
+            print(f"  * table_comment: 仅搜索表注释")
+            print(f"  * column_comment: 仅搜索字段注释")
+            print(f"- 交互式HTML格式提供了更强大的在线搜索功能")
+        
+        # 保存增量同步状态
+        if args.incremental:
+            # 将状态文件保存到交互式HTML的输出目录中，方便管理
+            output_dir = f"{output_filename}_interactive"
+            state_file = os.path.join(output_dir, f"{output_filename}_incremental_state.json")
+            save_incremental_state(
+                state_file, 
+                schema_info, 
+                db_name, 
+                db_host, 
+                config['database']['port'], 
+                config['database']['user'],
+                updated_tables_list=incremental_tables
+            )
             
         print("Data dictionary generation completed successfully.")
 
