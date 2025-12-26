@@ -5,6 +5,7 @@ import os
 import sys
 import argparse
 import configparser
+from urllib.parse import quote_plus
 import pandas as pd
 from sqlalchemy import create_engine, text, inspect
 
@@ -71,8 +72,8 @@ def get_db_connection_string(db_config):
     host = db_config['host']
     port = db_config['port']
     database = db_config['database']
-    user = db_config['user']
-    password = db_config['password']
+    user = quote_plus(db_config['user'])
+    password = quote_plus(db_config['password'])
 
     if db_type == 'mysql':
         return f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}"
@@ -81,7 +82,7 @@ def get_db_connection_string(db_config):
     elif db_type == 'sqlserver':
         # 从配置文件中获取驱动程序名称，如果未指定则使用默认值
         driver = db_config.get('driver', 'SQL Server')
-        driver_param = driver.replace(' ', '+')
+        driver_param = quote_plus(driver)
         
         # 构建连接字符串
         conn_str = f"mssql+pyodbc://{user}:{password}@{host}"

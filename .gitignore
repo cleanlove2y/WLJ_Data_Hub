@@ -1,6 +1,7 @@
 # Python virtual environment
 venv/
-
+.venv
+__pycache__
 # Configuration files
 config.ini
 config_multi_env.ini
